@@ -172,7 +172,10 @@ export function restoreDisplayConfig(
   args: RestoreDisplayConfigArgs
 ): Promise<void>;
 
-export type DisplayChangeListener = (conf: ExtractedDisplayConfig) => void;
+export type DisplayChangeListener = {
+  (err: Error): void;
+  (err: null, conf: ExtractedDisplayConfig): void;
+};
 
 export function addDisplayChangeListener(
   listener: DisplayChangeListener

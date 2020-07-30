@@ -591,8 +591,8 @@ function setupListenForDisplayChanges() {
  * listeners are registered, precluding graceful shutdown. Use {@link removeDisplayChangeListener}
  * to remove outstanding display change listeners and clear the event loop.
  *
- * @param {function(ExtractedDisplayConfig): void} listener
- * @returns {function(ExtractedDisplayConfig): void} the listener argument as passed
+ * @param {function(Error | null, ExtractedDisplayConfig | undefined): void} listener
+ * @returns {function(Error | null, ExtractedDisplayConfig | undefined): void} the listener argument as passed
  */
 module.exports.addDisplayChangeListener = (listener) => {
   if (displayChangeCallbacks.size === 0) {
@@ -614,7 +614,7 @@ module.exports.addDisplayChangeListener = (listener) => {
  * De-registering all display change listeners clears the event loop of pending
  * work started by {@link addDisplayChangeListener} to allow for a graceful shutdown.
  *
- * @param {function(ExtractedDisplayConfig): void} listener previously passed to {@link addDisplayChangeListener}
+ * @param {function(Error | null, ExtractedDisplayConfig | undefined): void} listener previously passed to {@link addDisplayChangeListener}
  */
 module.exports.removeDisplayChangeListener = (listener) => {
   displayChangeCallbacks.delete(listener);
