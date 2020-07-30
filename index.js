@@ -217,12 +217,12 @@ module.exports.queryDisplayConfig = () => {
  * @property {number} rotation
  * @property {string} scaling
  * @property {SourceMode} sourceMode
- * @property {TargetVideoSignalInfo} targetVideoSignalInfo
+ * @property {TargetVideoSignalInfo | undefined} targetVideoSignalInfo
  * @property {Buffer} pathBuffer A Buffer containing the exact DISPLAYCONFIG_PATH_INFO struct
  *  returned by QueryDisplayConfig for this configuration
  * @property {Buffer} sourceModeBuffer A Buffer containing the exact DISPLAYCONFIG_MODE_INFO
  *  source struct returned by QueryDisplayConfig for this configuration
- * @property {Buffer} targetModeBuffer A Buffer containing the exact DISPLAYCONFIG_MODE_INFO
+ * @property {Buffer | undefined} targetModeBuffer A Buffer containing the exact DISPLAYCONFIG_MODE_INFO
  *  target struct returned by QueryDisplayConfig for this configuration
  */
 
