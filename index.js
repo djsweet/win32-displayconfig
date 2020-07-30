@@ -233,7 +233,7 @@ module.exports.restoreDisplayConfig = async (args) => {
   // 3. The current state has some monitors that are missing, and some that are unexpected.
   //
   // What we're about to do here is coerce the monitor state to the expected state; if more
-  // monitors are enabled or disabled in the given state then that's fine, we're corecting
+  // monitors are enabled or disabled in the given state then that's fine, we're correcting
   // that away. The trick here is that the monitors in the expected state we _do_ want to
   // enable have to exist in the first place (we don't care about the ones we want to disable,
   // missing is also disabled if you squint hard enough).
