@@ -1,52 +1,53 @@
 #define NAPI_VERSION 4
 #include <napi.h>
-#include <windows.h>
 #include <string.h>
-#include <vector>
-#include <memory>
-#include <atomic>
+#include <windows.h>
 
-const int DEVICE_NAME_SIZE = 64; // 64 comes from DISPLAYCONFIG_TARGET_DEVICE_NAME.monitorFriendlyDeviceName
-const int DEVICE_PATH_SIZE = 128; // 128 comes from DISPLAYCONFIG_TARGET_DEVICE_NAME.monitorDevicePath
+#include <atomic>
+#include <memory>
+#include <vector>
+
+const int DEVICE_NAME_SIZE = 64;   // 64 comes from DISPLAYCONFIG_TARGET_DEVICE_NAME.monitorFriendlyDeviceName
+const int DEVICE_PATH_SIZE = 128;  // 128 comes from DISPLAYCONFIG_TARGET_DEVICE_NAME.monitorDevicePath
 
 struct Win32DeviceNameInfo {
     // Apparently, the adapterId is _not_ persistent between reboots.
     // And yet, the id is. So we likely want to find a better name.
-    LUID                                   adapterId;
-    UINT32                                 id;
+    LUID adapterId;
+    UINT32 id;
     DISPLAYCONFIG_TARGET_DEVICE_NAME_FLAGS deviceFlags;
-    DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY  outputTechnology;
-    UINT16                                 edidManufactureId;
-    UINT16                                 edidProductCodeId;
-    UINT32                                 connectorInstance;
-    WCHAR                                  monitorFriendlyDeviceName[DEVICE_NAME_SIZE];
-    WCHAR                                  monitorDevicePath[DEVICE_PATH_SIZE];
+    DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY outputTechnology;
+    UINT16 edidManufactureId;
+    UINT16 edidProductCodeId;
+    UINT32 connectorInstance;
+    WCHAR monitorFriendlyDeviceName[DEVICE_NAME_SIZE];
+    WCHAR monitorDevicePath[DEVICE_PATH_SIZE];
 };
 
 struct Win32QueryDisplayConfigResults {
-    Win32QueryDisplayConfigResults(UINT32 cPathInfo, UINT32 cModeInfo) 
-            : error(ERROR_SUCCESS) {
+    Win32QueryDisplayConfigResults(UINT32 cPathInfo, UINT32 cModeInfo)
+        : error(ERROR_SUCCESS) {
         this->rgPathInfo = std::vector<DISPLAYCONFIG_PATH_INFO>(cPathInfo);
         this->rgModeInfo = std::vector<DISPLAYCONFIG_MODE_INFO>(cModeInfo);
         this->rgNameInfo = std::vector<struct Win32DeviceNameInfo>();
     }
 
-    std::vector<DISPLAYCONFIG_PATH_INFO>    rgPathInfo;
-    std::vector<DISPLAYCONFIG_MODE_INFO>    rgModeInfo;
+    std::vector<DISPLAYCONFIG_PATH_INFO> rgPathInfo;
+    std::vector<DISPLAYCONFIG_MODE_INFO> rgModeInfo;
     std::vector<struct Win32DeviceNameInfo> rgNameInfo;
     LONG error;
     BOOL faultWasBuffer;
 };
 
 struct Win32TransientDeviceId {
-    LUID   adapterId;
+    LUID adapterId;
     UINT32 id;
 };
 
 struct Win32DeviceConfigToggleEnabled {
     Win32DeviceConfigToggleEnabled() : enable(), disable() {}
 
-    BOOL                                       persistent;
+    BOOL persistent;
     std::vector<struct Win32TransientDeviceId> enable;
     std::vector<struct Win32TransientDeviceId> disable;
 };
@@ -54,73 +55,74 @@ struct Win32DeviceConfigToggleEnabled {
 struct Win32RestoreDisplayConfigDevice {
     struct Win32TransientDeviceId sourceId;
     struct Win32TransientDeviceId targetId;
-    DISPLAYCONFIG_PATH_INFO       pathInfo;
-    DISPLAYCONFIG_MODE_INFO       sourceModeInfo;
-    DISPLAYCONFIG_MODE_INFO       targetModeInfo;
+    DISPLAYCONFIG_PATH_INFO pathInfo;
+    DISPLAYCONFIG_MODE_INFO sourceModeInfo;
+    DISPLAYCONFIG_MODE_INFO targetModeInfo;
 };
 
 DWORD RunDisplayChangeContextLoop(LPVOID lpParam);
 
 class Win32DisplayChangeContext {
-public:
+   public:
     Win32DisplayChangeContext(Napi::Env env, Napi::Function &callback) : running(), dwThreadId(0) {
-        this->running.store(true);
+        this->running.store(TRUE);
         this->hThread = NULL;
         this->tsfn = Napi::ThreadSafeFunction::New(
             env,
             callback,
             "Win32DisplayChangeContext thread",
             512,
-            1,
-            [this] ( Napi::Env ) {
-                this->running.store(false);
-                if (this->hThread != NULL) {
-                    PostThreadMessage(this->dwThreadId, WM_USER, 0, 0);
-                    WaitForSingleObject(this->hThread, INFINITE);
-                    CloseHandle(this->hThread);
-                }
-                delete this;
-            }
-        );
+            1);
     }
 
     DWORD Start() {
         this->hThread = CreateThread(NULL, 0, RunDisplayChangeContextLoop, this, 0, &this->dwThreadId);
         if (this->hThread == NULL) {
-            this->tsfn.Release();
             return GetLastError();
         } else {
             return ERROR_SUCCESS;
         }
     }
 
-    std::atomic<BOOL>        running;
-    HANDLE                   hThread;
+    void Stop() {
+        if (this->running.load() == FALSE) {
+            return;
+        }
+        this->running.store(FALSE);
+        if (this->hThread != NULL) {
+            PostThreadMessage(this->dwThreadId, WM_USER, 0, 0);
+            WaitForSingleObject(this->hThread, INFINITE);
+            CloseHandle(this->hThread);
+        }
+    }
+
+    std::atomic<BOOL> running;
+    HANDLE hThread;
     Napi::ThreadSafeFunction tsfn;
-    DWORD                    dwThreadId;
+    DWORD dwThreadId;
 };
 
 void HandleDisplayChangeError(Napi::Env env, Napi::Function callback, LPVOID error) {
-    #pragma warning( push )
-    #pragma warning( disable: 4311 4302 )
-    callback.Call(env.Global(), { Napi::Number::New(env, (DWORD)error) });
-    #pragma warning( pop )
+#pragma warning(push)
+#pragma warning(disable : 4311 4302)
+    callback.Call(env.Global(), {Napi::Number::New(env, (DWORD)error)});
+#pragma warning(pop)
 }
 
 void HandleDisplayChangeSuccess(Napi::Env env, Napi::Function callback) {
-    callback.Call(env.Global(), { env.Null() });
+    callback.Call(env.Global(), {env.Null()});
 }
 
 DWORD RunDisplayChangeContextLoop(LPVOID lpParam) {
-    auto  context = (Win32DisplayChangeContext*)lpParam;
-    MSG   msg;
-    BOOL  getMessageResponse;
+    auto context = (Win32DisplayChangeContext *)lpParam;
+    MSG msg;
+    BOOL getMessageResponse;
     DWORD error = ERROR_SUCCESS;
-    UINT  displayChange = 0;
+    UINT displayChange = 0;
 
     // In order to get WM_DISPLAYCHANGE messages we have to create
     // a hidden window in this specific thread.
-    HWND  hWnd = CreateWindowExW(
+    HWND hWnd = CreateWindowExW(
         WS_EX_TRANSPARENT,
         L"STATIC",
         L"Den Broadcast Event Monitor",
@@ -129,8 +131,7 @@ DWORD RunDisplayChangeContextLoop(LPVOID lpParam) {
         NULL,
         NULL,
         GetModuleHandle(NULL),
-        NULL
-    );
+        NULL);
 
     // The documentation would lead you to believe you get a WM_DISPLAYCHANGE
     // whenever the display changes. The documentation would be wrong.
@@ -143,14 +144,12 @@ DWORD RunDisplayChangeContextLoop(LPVOID lpParam) {
         if (hWnd != NULL) {
             DestroyWindow(hWnd);
         }
-        #pragma warning( push )
-        #pragma warning( disable: 4312 )
+#pragma warning(push)
+#pragma warning(disable : 4312)
         context->tsfn.NonBlockingCall((LPVOID)error, HandleDisplayChangeError);
-        #pragma warning( pop )
-        context->tsfn.Release();
+#pragma warning(pop)
         return error;
     }
-
 
     while (context->running.load() != FALSE && (getMessageResponse = GetMessage(&msg, NULL, 0, 0)) > 0) {
         if (msg.message == displayChange) {
@@ -163,14 +162,13 @@ DWORD RunDisplayChangeContextLoop(LPVOID lpParam) {
 
     if (getMessageResponse < 0) {
         error = GetLastError();
-        #pragma warning( push )
-        #pragma warning( disable: 4312 )
+#pragma warning(push)
+#pragma warning(disable : 4312)
         context->tsfn.NonBlockingCall((LPVOID)error, HandleDisplayChangeError);
-        #pragma warning( pop )
+#pragma warning(pop)
     }
 
     DestroyWindow(hWnd);
-    context->tsfn.Release();
     return error;
 }
 
@@ -305,7 +303,7 @@ LONG ToggleEnabled(const std::shared_ptr<struct Win32DeviceConfigToggleEnabled> 
         currentPathDeviceId.id = it->targetInfo.id;
 
         if (it->sourceInfo.modeInfoIdx == DISPLAYCONFIG_PATH_MODE_IDX_INVALID ||
-                it->targetInfo.modeInfoIdx == DISPLAYCONFIG_PATH_MODE_IDX_INVALID) {
+            it->targetInfo.modeInfoIdx == DISPLAYCONFIG_PATH_MODE_IDX_INVALID) {
             continue;
         }
 
@@ -331,7 +329,7 @@ LONG ToggleEnabled(const std::shared_ptr<struct Win32DeviceConfigToggleEnabled> 
         }
 
         if (TransientDeviceIdVectorContains(args->enable, currentPathDeviceId) &&
-                !TransientDeviceIdVectorContains(alreadyEnabled, currentPathDeviceId)) {
+            !TransientDeviceIdVectorContains(alreadyEnabled, currentPathDeviceId)) {
             auto copied = *it;
             copied.sourceInfo.modeInfoIdx = DISPLAYCONFIG_PATH_MODE_IDX_INVALID;
             copied.sourceInfo.statusFlags = 0;
@@ -349,12 +347,11 @@ LONG ToggleEnabled(const std::shared_ptr<struct Win32DeviceConfigToggleEnabled> 
     // Windows, the only way out of this hole is to turn them all on, then turn off
     // the ones we don't want.
     auto error = SetDisplayConfig(
-        preserve.size(), 
+        preserve.size(),
         preserve.data(),
         0,
         NULL,
-        SDC_APPLY | SDC_TOPOLOGY_SUPPLIED | SDC_TOPOLOGY_CLONE | SDC_TOPOLOGY_EXTEND | SDC_ALLOW_PATH_ORDER_CHANGES
-    );
+        SDC_APPLY | SDC_TOPOLOGY_SUPPLIED | SDC_TOPOLOGY_CLONE | SDC_TOPOLOGY_EXTEND | SDC_ALLOW_PATH_ORDER_CHANGES);
 
     if (error != ERROR_SUCCESS) {
         return error;
@@ -374,12 +371,12 @@ LONG ToggleEnabled(const std::shared_ptr<struct Win32DeviceConfigToggleEnabled> 
         currentPathDeviceId.id = it->targetInfo.id;
 
         if (it->sourceInfo.modeInfoIdx == DISPLAYCONFIG_PATH_MODE_IDX_INVALID ||
-                it->targetInfo.modeInfoIdx == DISPLAYCONFIG_PATH_MODE_IDX_INVALID) {
+            it->targetInfo.modeInfoIdx == DISPLAYCONFIG_PATH_MODE_IDX_INVALID) {
             continue;
         }
 
         if (((it->flags & DISPLAYCONFIG_PATH_ACTIVE) == DISPLAYCONFIG_PATH_ACTIVE) &&
-                !TransientDeviceIdVectorContains(args->disable, currentPathDeviceId)) {
+            !TransientDeviceIdVectorContains(args->disable, currentPathDeviceId)) {
             auto copied = *it;
             copied.sourceInfo.modeInfoIdx = DISPLAYCONFIG_PATH_MODE_IDX_INVALID;
             copied.sourceInfo.statusFlags = 0;
@@ -394,8 +391,7 @@ LONG ToggleEnabled(const std::shared_ptr<struct Win32DeviceConfigToggleEnabled> 
         preserve.data(),
         0,
         NULL,
-        SDC_APPLY | SDC_TOPOLOGY_SUPPLIED | SDC_ALLOW_PATH_ORDER_CHANGES
-    );
+        SDC_APPLY | SDC_TOPOLOGY_SUPPLIED | SDC_ALLOW_PATH_ORDER_CHANGES);
 
     if (!args->persistent || error != ERROR_SUCCESS) {
         return error;
@@ -414,14 +410,13 @@ LONG ToggleEnabled(const std::shared_ptr<struct Win32DeviceConfigToggleEnabled> 
         persistentQueryResults->rgPathInfo.data(),
         persistentQueryResults->rgModeInfo.size(),
         persistentQueryResults->rgModeInfo.data(),
-        SDC_APPLY | SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_SAVE_TO_DATABASE
-    );
+        SDC_APPLY | SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_SAVE_TO_DATABASE);
 }
 
 LONG RestoreDeviceConfig(const std::shared_ptr<std::vector<struct Win32RestoreDisplayConfigDevice>> restoreConfig, BOOL persistent) {
     std::vector<DISPLAYCONFIG_PATH_INFO> rgPathInfo;
     std::vector<DISPLAYCONFIG_MODE_INFO> rgModeInfo;
-    DWORD                                dwModeInfoOffset = 0;
+    DWORD dwModeInfoOffset = 0;
 
     for (auto it = restoreConfig->begin(); it != restoreConfig->end(); it++) {
         auto pathInfoCopy = it->pathInfo;
@@ -457,8 +452,7 @@ LONG RestoreDeviceConfig(const std::shared_ptr<std::vector<struct Win32RestoreDi
         rgPathInfo.data(),
         rgModeInfo.size(),
         rgModeInfo.data(),
-        SDC_APPLY | SDC_USE_SUPPLIED_DISPLAY_CONFIG | persistFlag
-    );
+        SDC_APPLY | SDC_USE_SUPPLIED_DISPLAY_CONFIG | persistFlag);
 }
 
 Napi::Object ConvertLUID(Napi::Env env, const LUID *luid) {
@@ -485,74 +479,74 @@ Napi::Object ConvertSourcePathInfo(Napi::Env env, const DISPLAYCONFIG_PATH_SOURC
 
 Napi::String ConvertVideoOutputTechnology(Napi::Env env, DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY tech) {
     switch (tech) {
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_HD15:
-        return Napi::String::New(env, "hd15");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_SVIDEO:
-        return Napi::String::New(env, "svideo");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_COMPOSITE_VIDEO:
-        return Napi::String::New(env, "composite");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_COMPONENT_VIDEO:
-        return Napi::String::New(env, "component");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DVI:
-        return Napi::String::New(env, "dvi");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_HDMI:
-        return Napi::String::New(env, "hdmi");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_LVDS:
-        return Napi::String::New(env, "ldvs");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_D_JPN:
-        return Napi::String::New(env, "d_jpn");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_SDI:
-        return Napi::String::New(env, "sdi");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DISPLAYPORT_EXTERNAL:
-        return Napi::String::New(env, "displayport_external");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DISPLAYPORT_EMBEDDED:
-        return Napi::String::New(env, "displayport_embedded");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_UDI_EXTERNAL:
-        return Napi::String::New(env, "udi_external");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_UDI_EMBEDDED:
-        return Napi::String::New(env, "udi_embedded");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_SDTVDONGLE:
-        return Napi::String::New(env, "sdtvdongle");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_MIRACAST:
-        return Napi::String::New(env, "miracast");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INDIRECT_WIRED:
-        return Napi::String::New(env, "indirect_wired");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INDIRECT_VIRTUAL:
-        return Napi::String::New(env, "indirect_virtual");
-    case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL:
-        return Napi::String::New(env, "internal");
-    default:
-        return Napi::String::New(env, "other");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_HD15:
+            return Napi::String::New(env, "hd15");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_SVIDEO:
+            return Napi::String::New(env, "svideo");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_COMPOSITE_VIDEO:
+            return Napi::String::New(env, "composite");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_COMPONENT_VIDEO:
+            return Napi::String::New(env, "component");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DVI:
+            return Napi::String::New(env, "dvi");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_HDMI:
+            return Napi::String::New(env, "hdmi");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_LVDS:
+            return Napi::String::New(env, "ldvs");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_D_JPN:
+            return Napi::String::New(env, "d_jpn");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_SDI:
+            return Napi::String::New(env, "sdi");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DISPLAYPORT_EXTERNAL:
+            return Napi::String::New(env, "displayport_external");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DISPLAYPORT_EMBEDDED:
+            return Napi::String::New(env, "displayport_embedded");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_UDI_EXTERNAL:
+            return Napi::String::New(env, "udi_external");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_UDI_EMBEDDED:
+            return Napi::String::New(env, "udi_embedded");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_SDTVDONGLE:
+            return Napi::String::New(env, "sdtvdongle");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_MIRACAST:
+            return Napi::String::New(env, "miracast");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INDIRECT_WIRED:
+            return Napi::String::New(env, "indirect_wired");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INDIRECT_VIRTUAL:
+            return Napi::String::New(env, "indirect_virtual");
+        case DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL:
+            return Napi::String::New(env, "internal");
+        default:
+            return Napi::String::New(env, "other");
     }
 }
 
 Napi::Number ConvertRotation(Napi::Env env, DISPLAYCONFIG_ROTATION rotation) {
     switch (rotation) {
-    case DISPLAYCONFIG_ROTATION_ROTATE90:
-        return Napi::Number::New(env, 90);
-    case DISPLAYCONFIG_ROTATION_ROTATE180:
-        return Napi::Number::New(env, 180);
-    case DISPLAYCONFIG_ROTATION_ROTATE270:
-        return Napi::Number::New(env, 270);
-    default:
-        return Napi::Number::New(env, 0);
+        case DISPLAYCONFIG_ROTATION_ROTATE90:
+            return Napi::Number::New(env, 90);
+        case DISPLAYCONFIG_ROTATION_ROTATE180:
+            return Napi::Number::New(env, 180);
+        case DISPLAYCONFIG_ROTATION_ROTATE270:
+            return Napi::Number::New(env, 270);
+        default:
+            return Napi::Number::New(env, 0);
     }
 }
 
 Napi::String ConvertScaling(Napi::Env env, DISPLAYCONFIG_SCALING scaling) {
     switch (scaling) {
-    case DISPLAYCONFIG_SCALING_CENTERED:
-        return Napi::String::New(env, "scaling");
-    case DISPLAYCONFIG_SCALING_STRETCHED:
-        return Napi::String::New(env, "stretched");
-    case DISPLAYCONFIG_SCALING_ASPECTRATIOCENTEREDMAX:
-        return Napi::String::New(env, "aspectratiocenteredmax");
-    case DISPLAYCONFIG_SCALING_CUSTOM:
-        return Napi::String::New(env, "custom");
-    case DISPLAYCONFIG_SCALING_PREFERRED:
-        return Napi::String::New(env, "preferred");
-    default:
-        return Napi::String::New(env, "identity");
+        case DISPLAYCONFIG_SCALING_CENTERED:
+            return Napi::String::New(env, "scaling");
+        case DISPLAYCONFIG_SCALING_STRETCHED:
+            return Napi::String::New(env, "stretched");
+        case DISPLAYCONFIG_SCALING_ASPECTRATIOCENTEREDMAX:
+            return Napi::String::New(env, "aspectratiocenteredmax");
+        case DISPLAYCONFIG_SCALING_CUSTOM:
+            return Napi::String::New(env, "custom");
+        case DISPLAYCONFIG_SCALING_PREFERRED:
+            return Napi::String::New(env, "preferred");
+        default:
+            return Napi::String::New(env, "identity");
     }
 }
 
@@ -565,14 +559,14 @@ Napi::Object ConvertRational(Napi::Env env, const DISPLAYCONFIG_RATIONAL &ration
 
 Napi::String ConvertScanLineOrdering(Napi::Env env, DISPLAYCONFIG_SCANLINE_ORDERING ordering) {
     switch (ordering) {
-    case DISPLAYCONFIG_SCANLINE_ORDERING_PROGRESSIVE:
-        return Napi::String::New(env, "progressive");
-    case DISPLAYCONFIG_SCANLINE_ORDERING_INTERLACED:
-        return Napi::String::New(env, "interlaced");
-    case DISPLAYCONFIG_SCANLINE_ORDERING_INTERLACED_LOWERFIELDFIRST:
-        return Napi::String::New(env, "interlaced_lowerfieldfirst");
-    default:
-        return Napi::String::New(env, "unspecified");
+        case DISPLAYCONFIG_SCANLINE_ORDERING_PROGRESSIVE:
+            return Napi::String::New(env, "progressive");
+        case DISPLAYCONFIG_SCANLINE_ORDERING_INTERLACED:
+            return Napi::String::New(env, "interlaced");
+        case DISPLAYCONFIG_SCANLINE_ORDERING_INTERLACED_LOWERFIELDFIRST:
+            return Napi::String::New(env, "interlaced_lowerfieldfirst");
+        default:
+            return Napi::String::New(env, "unspecified");
     }
 }
 
@@ -644,29 +638,29 @@ Napi::Object ConvertTargetMode(Napi::Env env, const DISPLAYCONFIG_TARGET_MODE &t
 
 Napi::Value ConvertPixelFormat(Napi::Env env, DISPLAYCONFIG_PIXELFORMAT pixelFormat) {
     switch (pixelFormat) {
-    case DISPLAYCONFIG_PIXELFORMAT_8BPP:
-        return Napi::Number::New(env, 8);
-    case DISPLAYCONFIG_PIXELFORMAT_16BPP:
-        return Napi::Number::New(env, 16);
-    case DISPLAYCONFIG_PIXELFORMAT_24BPP:
-        return Napi::Number::New(env, 24);
-    case DISPLAYCONFIG_PIXELFORMAT_32BPP:
-        return Napi::Number::New(env, 32);
-    default:
-        return Napi::String::New(env, "nongdi");
+        case DISPLAYCONFIG_PIXELFORMAT_8BPP:
+            return Napi::Number::New(env, 8);
+        case DISPLAYCONFIG_PIXELFORMAT_16BPP:
+            return Napi::Number::New(env, 16);
+        case DISPLAYCONFIG_PIXELFORMAT_24BPP:
+            return Napi::Number::New(env, 24);
+        case DISPLAYCONFIG_PIXELFORMAT_32BPP:
+            return Napi::Number::New(env, 32);
+        default:
+            return Napi::String::New(env, "nongdi");
     }
 }
 
 Napi::Value ConvertModeInfoType(Napi::Env env, DISPLAYCONFIG_MODE_INFO_TYPE modeInfoType) {
     switch (modeInfoType) {
-    case DISPLAYCONFIG_MODE_INFO_TYPE_TARGET:
-        return Napi::String::New(env, "target");
-    case DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE:
-        return Napi::String::New(env, "source");
-    case DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE:
-        return Napi::String::New(env, "desktopImage");
-    default:
-        return env.Undefined();
+        case DISPLAYCONFIG_MODE_INFO_TYPE_TARGET:
+            return Napi::String::New(env, "target");
+        case DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE:
+            return Napi::String::New(env, "source");
+        case DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE:
+            return Napi::String::New(env, "desktopImage");
+        default:
+            return env.Undefined();
     }
 }
 
@@ -710,15 +704,15 @@ Napi::Object ConvertModeInfo(Napi::Env env, const DISPLAYCONFIG_MODE_INFO &modeI
     result.Set("adapterId", ConvertLUID(env, &modeInfo.adapterId));
 
     switch (modeInfo.infoType) {
-    case DISPLAYCONFIG_MODE_INFO_TYPE_TARGET:
-        result.Set("targetMode", ConvertTargetMode(env, modeInfo.targetMode));
-        break;
-    case DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE:
-        result.Set("sourceMode", ConvertSourceMode(env, modeInfo.sourceMode));
-        break;
-    case DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE:
-        result.Set("desktopImageInfo", ConvertDesktopImageInfo(env, modeInfo.desktopImageInfo));
-        break;
+        case DISPLAYCONFIG_MODE_INFO_TYPE_TARGET:
+            result.Set("targetMode", ConvertTargetMode(env, modeInfo.targetMode));
+            break;
+        case DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE:
+            result.Set("sourceMode", ConvertSourceMode(env, modeInfo.sourceMode));
+            break;
+        case DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE:
+            result.Set("desktopImageInfo", ConvertDesktopImageInfo(env, modeInfo.desktopImageInfo));
+            break;
     }
 
     return result;
@@ -783,15 +777,15 @@ Napi::Object ConvertConfigResults(Napi::Env env, const std::shared_ptr<struct Wi
 }
 
 class Win32QueryDisplayConfigWorker : public Napi::AsyncWorker {
-public:
-    Win32QueryDisplayConfigWorker(Napi::Function &callback) : Napi::AsyncWorker(callback), configResults() { }
+   public:
+    Win32QueryDisplayConfigWorker(Napi::Function &callback) : Napi::AsyncWorker(callback), configResults() {}
 
     void Execute() {
         this->configResults = DoQueryDisplayConfig();
     }
 
     std::vector<napi_value> GetResult(Napi::Env env) {
-        std::vector<napi_value> result { env.Null(), env.Undefined() };
+        std::vector<napi_value> result{env.Null(), env.Undefined()};
         if (this->configResults->error != ERROR_SUCCESS) {
             result[0] = Napi::Number::New(env, (double)this->configResults->error);
         } else {
@@ -800,7 +794,8 @@ public:
 
         return result;
     }
-private:
+
+   private:
     std::shared_ptr<struct Win32QueryDisplayConfigResults> configResults;
 };
 
@@ -819,20 +814,20 @@ Napi::Value Win32QueryDisplayConfig(const Napi::CallbackInfo &info) {
 }
 
 class Win32ToggleEnabledWorker : public Napi::AsyncWorker {
-public:
+   public:
     Win32ToggleEnabledWorker(Napi::Function &callback, std::shared_ptr<struct Win32DeviceConfigToggleEnabled> args)
-        : Napi::AsyncWorker(callback), args(args)
-        { }
+        : Napi::AsyncWorker(callback), args(args) {}
 
     void Execute() {
         this->errorCode = ToggleEnabled(this->args);
     }
 
     std::vector<napi_value> GetResult(Napi::Env env) {
-        std::vector<napi_value> result { env.Null(), Napi::Number::New(env, (double)this->errorCode) };
+        std::vector<napi_value> result{env.Null(), Napi::Number::New(env, (double)this->errorCode)};
         return result;
     }
-private:
+
+   private:
     std::shared_ptr<struct Win32DeviceConfigToggleEnabled> args;
     LONG errorCode;
 };
@@ -908,19 +903,20 @@ Napi::Value Win32ToggleEnabledDisplays(const Napi::CallbackInfo &info) {
 }
 
 class Win32RestoreDisplayConfigWorker : public Napi::AsyncWorker {
-public:
+   public:
     Win32RestoreDisplayConfigWorker(Napi::Function &callback, std::shared_ptr<std::vector<struct Win32RestoreDisplayConfigDevice>> configs, BOOL persistent)
         : Napi::AsyncWorker(callback), configs(configs), persistent(persistent) {}
-    
+
     void Execute() {
         this->errorCode = RestoreDeviceConfig(this->configs, this->persistent);
     }
 
     std::vector<napi_value> GetResult(Napi::Env env) {
-        std::vector<napi_value> result { env.Null(), Napi::Number::New(env, (double)this->errorCode) };
+        std::vector<napi_value> result{env.Null(), Napi::Number::New(env, (double)this->errorCode)};
         return result;
     }
-private:
+
+   private:
     std::shared_ptr<std::vector<struct Win32RestoreDisplayConfigDevice>> configs;
     LONG errorCode;
     BOOL persistent;
@@ -934,10 +930,10 @@ BOOL ExtractRestoreDisplayConfigEntry(Napi::Env env, Napi::Object obj, struct Wi
     auto targetModeBufferVal = obj.Get("targetModeBuffer");
 
     if (!sourceConfigIdVal.IsObject() ||
-            !targetConfigIdVal.IsObject() ||
-            !pathBufferVal.IsBuffer() ||
-            !sourceModeBufferVal.IsBuffer() ||
-            !targetModeBufferVal.IsBuffer()) {
+        !targetConfigIdVal.IsObject() ||
+        !pathBufferVal.IsBuffer() ||
+        !sourceModeBufferVal.IsBuffer() ||
+        !targetModeBufferVal.IsBuffer()) {
         return false;
     }
 
@@ -952,9 +948,7 @@ BOOL ExtractRestoreDisplayConfigEntry(Napi::Env env, Napi::Object obj, struct Wi
     auto sourceModeBuffer = sourceModeBufferVal.As<Napi::Buffer<uint8_t>>();
     auto targetModeBuffer = targetModeBufferVal.As<Napi::Buffer<uint8_t>>();
 
-    if (pathBuffer.Length() != sizeof(DISPLAYCONFIG_PATH_INFO)
-            || sourceModeBuffer.Length() != sizeof(DISPLAYCONFIG_MODE_INFO)
-            || targetModeBuffer.Length() != sizeof(DISPLAYCONFIG_MODE_INFO)) {
+    if (pathBuffer.Length() != sizeof(DISPLAYCONFIG_PATH_INFO) || sourceModeBuffer.Length() != sizeof(DISPLAYCONFIG_MODE_INFO) || targetModeBuffer.Length() != sizeof(DISPLAYCONFIG_MODE_INFO)) {
         return false;
     }
 
@@ -996,20 +990,53 @@ Napi::Value Win32RestoreDisplayConfig(const Napi::CallbackInfo &info) {
     return Napi::Boolean::New(info.Env(), true);
 }
 
+static Win32DisplayChangeContext *displayEventContext = NULL;
+
 Napi::Value Win32ListenForDisplayChanges(const Napi::CallbackInfo &info) {
     if (info.Length() < 1 || !info[0].IsFunction()) {
         return Napi::Boolean::New(info.Env(), false);
     }
-    auto context = new Win32DisplayChangeContext(info.Env(), info[0].As<Napi::Function>());
-    auto error = context->Start();
+    if (displayEventContext != NULL) {
+        return Napi::Boolean::New(info.Env(), true);
+    }
+
+    displayEventContext = new Win32DisplayChangeContext(info.Env(), info[0].As<Napi::Function>());
+    auto error = displayEventContext->Start();
+    if (error != ERROR_SUCCESS) {
+        delete displayEventContext;
+        displayEventContext = NULL;
+    }
     return Napi::Number::New(info.Env(), error);
+}
+
+Napi::Value Win32StopListeningForDisplayChanges(const Napi::CallbackInfo &info) {
+    if (displayEventContext == NULL) {
+        return info.Env().Undefined();
+    }
+
+    displayEventContext->Stop();
+    // ->Stop() waits (blocking) for the outstanding thread, so we'll be the only
+    // thread referencing displayEventContext once it's gone.
+    delete displayEventContext;
+    displayEventContext = NULL;
+
+    return info.Env().Undefined();
 }
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("win32_queryDisplayConfig", Napi::Function::New(env, Win32QueryDisplayConfig));
     exports.Set("win32_toggleEnabledDisplays", Napi::Function::New(env, Win32ToggleEnabledDisplays));
     exports.Set("win32_restoreDisplayConfig", Napi::Function::New(env, Win32RestoreDisplayConfig));
+
+    // Take note: while none of these functions are meant to be called directly in JavaScript,
+    // these two in particular _depend_ on ordering enforced by JavaScript to function correctly.
+    // You can only have one active event listener passed to this C++ library; otherwise we ignore
+    // further event listeners.
+    //
+    // See index.js for the "right" way to do this: we pass one function to this module that
+    // dispatches other JavaScript functions for us.
     exports.Set("win32_listenForDisplayChanges", Napi::Function::New(env, Win32ListenForDisplayChanges));
+    exports.Set("win32_stopListeningForDisplayChanges", Napi::Function::New(env, Win32StopListeningForDisplayChanges));
 
     return exports;
 }

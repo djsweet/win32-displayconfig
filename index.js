@@ -307,20 +307,32 @@ async function updateDisplayStateAndNotifyCallbacks() {
 }
 
 let currentDisplayConfigPromise = updateDisplayStateAndNotifyCallbacks();
-addon.win32_listenForDisplayChanges((err) => {
-  if (err === null) {
-    currentDisplayConfigPromise = currentDisplayConfigPromise.then(() =>
-      updateDisplayStateAndNotifyCallbacks()
-    );
-  }
-});
+
+function setupListenForDisplayChanges() {
+  addon.win32_listenForDisplayChanges((err) => {
+    if (err === null) {
+      currentDisplayConfigPromise = currentDisplayConfigPromise.then(() =>
+        updateDisplayStateAndNotifyCallbacks()
+      );
+    }
+  });
+}
 
 module.exports.addDisplayChangeListener = (listener) => {
+  if (displayChangeCallbacks.size === 0) {
+    setupListenForDisplayChanges();
+  }
+
   displayChangeCallbacks.add(listener);
+
   if (currentDisplayConfig !== undefined) {
     listener(null, currentDisplayConfig);
   }
 };
+
 module.exports.removeDisplayChangeListener = (listener) => {
   displayChangeCallbacks.delete(listener);
+  if (displayChangeCallbacks.size === 0) {
+    addon.win32_stopListeningForDisplayChanges();
+  }
 };
