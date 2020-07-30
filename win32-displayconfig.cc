@@ -125,7 +125,7 @@ DWORD RunDisplayChangeContextLoop(LPVOID lpParam) {
     HWND hWnd = CreateWindowExW(
         WS_EX_TRANSPARENT,
         L"STATIC",
-        L"Den Broadcast Event Monitor",
+        L"win32-displayconfig Broadcast Event Monitor",
         WS_OVERLAPPEDWINDOW,
         0, 0, 0, 0,
         NULL,
