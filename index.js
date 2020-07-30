@@ -1,6 +1,11 @@
 "use strict";
 const addon = require("bindings")("./win32_displayconfig");
 
+/**
+ * Represents a numeric error code returned from the Win32 API.
+ *
+ * @member {number} code is the exact numeric code returned by the Win32 API.
+ */
 class Win32Error extends Error {
   constructor(code) {
     super(`Win32 error code ${code}`);
@@ -8,6 +13,176 @@ class Win32Error extends Error {
   }
 }
 
+module.exports.Win32Error = Win32Error;
+
+/**
+ * @typedef AdapterId
+ * @type {object}
+ * @property {number} LowPart
+ * @property {number} HighPart
+ */
+
+/**
+ * @typedef DisplayConfigFractional
+ * @type {object}
+ * @property {number} Numerator
+ * @property {number} Denominator
+ */
+
+/**
+ * @typedef SourcePathInfo
+ * @type {object}
+ * @property {AdapterId} adapterId
+ * @property {number} id
+ * @property {number} statusFlags
+ * @property {number} modeInfoIdx
+ */
+
+/**
+ * @typedef TargetPathInfo
+ * @type {object}
+ * @property {AdapterId} adapterId
+ * @property {number} id
+ * @property {number} statusFlags
+ * @property {string} outputTechnology
+ * @property {number} rotation
+ * @property {string} scaling
+ * @property {DisplayConfigFractional} refreshRate
+ * @property {string} scanlineOrdering
+ * @property {number} targetAvailable
+ * @property {number} modeInfoIdx
+ */
+
+/**
+ * @typedef PathInfoValue
+ * @type {object}
+ * @property {number} flags
+ * @property {SourcePathInfo} sourceInfo
+ * @property {TargetPathInfo} targetInfo
+ */
+
+/**
+ * @typedef PathInfo
+ * @type {object}
+ * @property {PathInfoValue} value
+ * @property {Buffer} buffer
+ */
+
+/**
+ * @typedef DisplayConfigPosition
+ * @type {object}
+ * @property {number} x
+ * @property {number} y
+ */
+
+/**
+ * @typedef SourceMode
+ * @type {object}
+ * @property {number} width
+ * @property {number} height
+ * @property {number} pixelFormat
+ * @property {DisplayConfigPosition} position
+ */
+
+/**
+ * @typedef SourceModeInfo
+ * @type {object}
+ * @property {AdapterId} adapterId
+ * @property {number} id
+ * @property {"source"} infoType
+ * @property {SourceMode} sourceMode
+ */
+
+/**
+ * @typedef PixelRate
+ * @type {object}
+ * @property {number} lowPart
+ * @property {number} highPart
+ */
+
+/**
+ * @typedef DisplayConfigSize
+ * @type {object}
+ * @property {number} cx
+ * @property {number} cy
+ */
+
+/**
+ * @typedef TargetVideoSignalInfo
+ * @type {object}
+ * @property {PixelRate} pixelRate
+ * @property {DisplayConfigFractional} hSyncFreq
+ * @property {DisplayConfigFractional} vSyncFreq
+ * @property {DisplayConfigSize} activeSize
+ * @property {DisplayConfigSize} totalSize
+ * @property {number} videoStandard
+ * @property {string} scanlineOrdering
+ */
+
+/**
+ * @typedef TargetMode
+ * @type {object}
+ * @property {TargetVideoSignalInfo} targetVideoSignalInfo
+ */
+
+/**
+ * @typedef TargetModeInfo
+ * @type {object}
+ * @property {AdapterId} adapterId
+ * @property {number} id
+ * @property {"target"} infoType
+ * @property {TargetMode} targetMode
+ */
+
+/**
+ * @typedef ModeInfoValue
+ * @type {SourceModeInfo | TargetModeInfo}
+ */
+
+/**
+ * @typedef ModeInfo
+ * @type {object}
+ * @property {ModeInfoValue} value
+ * @property {Buffer} buffer
+ */
+
+/**
+ * @typedef NameInfo
+ * @type {object}
+ * @property {AdapterId} adapterId
+ * @property {number} id
+ * @property {string} outputTechnology
+ * @property {number} edidManufactureId
+ * @property {number} edidProductCodeId
+ * @property {number} connectorInstance
+ * @property {string} monitorFriendlyDeviceName
+ * @property {string} monitorDevicePath
+ */
+
+/**
+ * @typedef QueryDisplayConfigResults
+ * @type {object}
+ * @property {PathInfo[]} pathArray
+ * @property {ModeInfo[]} modeInfoArray
+ * @property {NameInfo[]} nameArray
+ */
+
+/**
+ * Retrieves low-level information from the Win32 API QueryDisplayConfig.
+ *
+ * The output of this function somewhat matches the "output" values of
+ * QueryDisplayConfig, as documented at
+ * https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-querydisplayconfig,
+ * in the pathArray and modeInfoArray results.
+ *
+ * Additionally, this function uses the DisplayConfigGetDeviceInfo function over
+ * all resolved displays to return the names, output technology, and manufacturer IDs
+ * in the nameArray results.
+ *
+ * @returns {Promise<QueryDisplayConfigResults>}
+ *   A Promise, resolving to { pathArray: [...], modeInfoArray: [...], nameArray: [...] },
+ *   or rejecting with a {@link Win32Error} if something goes wrong.
+ */
 module.exports.queryDisplayConfig = () => {
   return new Promise((resolve, reject) => {
     const ran = addon.win32_queryDisplayConfig((err, result) => {
@@ -23,6 +198,43 @@ module.exports.queryDisplayConfig = () => {
   });
 };
 
+/**
+ * @typedef ConfigId
+ * @type {object}
+ * @property {AdapterId} adapterId
+ * @property {number} id
+ */
+
+/**
+ * @typedef ExtractedDisplayConfig
+ * @type {object}
+ * @property {string} displayName The "friendly name" of the relevant display
+ * @property {string} devicePath The Windows NT device path of the relevant display
+ * @property {ConfigId} sourceConfigId
+ * @property {ConfigId} targetConfigId
+ * @property {boolean} inUse Whether this configuration is currently being used
+ * @property {string} outputTechnology
+ * @property {number} rotation
+ * @property {string} scaling
+ * @property {SourceMode} sourceMode
+ * @property {TargetVideoSignalInfo} targetVideoSignalInfo
+ * @property {Buffer} pathBuffer A Buffer containing the exact DISPLAYCONFIG_PATH_INFO struct
+ *  returned by QueryDisplayConfig for this configuration
+ * @property {Buffer} sourceModeBuffer A Buffer containing the exact DISPLAYCONFIG_MODE_INFO
+ *  source struct returned by QueryDisplayConfig for this configuration
+ * @property {Buffer} targetModeBuffer A Buffer containing the exact DISPLAYCONFIG_MODE_INFO
+ *  target struct returned by QueryDisplayConfig for this configuration
+ */
+
+/**
+ * Retrieves higher-level information from the Win32 API QueryDisplayConfig.
+ *
+ * Unlike {@link queryDisplayConfig}, this function pulls all relevant information
+ * about a device/mode pairing into a single object.
+ *
+ * @returns {Promise<ExtractedDisplayConfig>} A Promise, resolving to display configuration information
+ *   or rejecting with a {@link Win32Error} if something goes wrong.
+ */
 module.exports.extractDisplayConfig = async () => {
   const config = await module.exports.queryDisplayConfig();
   const ret = [];
@@ -127,6 +339,21 @@ async function win32_toggleEnabledDisplays(args) {
   });
 }
 
+/**
+ * @typedef ToggleEnabledDisplaysArgs
+ * @type {object}
+ * @property {string[]} enablePaths Exact Windows NT device paths of the displays to enable
+ * @property {string[]} disablePaths Exact Windows NT device paths of the displays to disable
+ * @property {boolean} persistent Whether to save this configuration as the default configuration
+ */
+
+/**
+ * Toggles enabled/disabled state of the given displays.
+ *
+ * If "persistent", then this is saved between restarts.
+ *
+ * @param {ToggleEnabledDisplaysArgs} args
+ */
 module.exports.toggleEnabledDisplays = async (args) => {
   const { persistent, enable: enablePaths, disable: disablePaths } = args;
   const enable = [];
@@ -169,6 +396,23 @@ function devicePathLookupForEnabledDisplayConfig(conf) {
   return ret;
 }
 
+/**
+ * @typedef DisplayRestorationConfigurationEntry
+ * @type {object}
+ * @property {string} devicePath
+ * @property {string} pathBuffer A Base-64 encoded binary blob representing
+ *   a DISPLAYCONFIG_PATH_INFO instance for the given devicePath
+ * @property {string} sourceModeBuffer A Base-64 encoded binary blob representing
+ *   a DISPLAYCONFIG_MODE_INFO source instance for the given devicePath
+ * @property {string} targetModeBuffer A Base-64 encoded binary blob representing
+ *   a DISPLAYCONFIG_MODE_INFO target instance for the given devicePath
+ */
+
+/**
+ * Returns a display configuration suitable for restoration with {@link restoreDisplayConfig}.
+ *
+ * @returns {DisplayRestorationConfigurationEntry[]}
+ */
 module.exports.displayConfigForRestoration = async () => {
   const currentConfig = await module.exports.extractDisplayConfig();
   const ret = [];
@@ -213,6 +457,23 @@ async function win32_restoreDisplayConfig(configs, persistent) {
   });
 }
 
+/**
+ * @typedef RestoreDisplayConfigArgs
+ * @type {object}
+ * @property {DisplayRestorationConfigurationEntry[]} config
+ * @property {boolean} persistent Whether to save this configuration as the default configuration
+ */
+
+/**
+ * Restores a display configuration derived from {@link displayConfigForRestoration}.
+ *
+ * If the given configuration refers to enabled displays that are not currently attached,
+ * this function simply enables the displays known to the given configuration and
+ * disables all attached displays not known to the given configuration. Otherwise,
+ * the given configuration is applied to the display set.
+ *
+ * @param {RestoreDisplayConfigArgs} args
+ */
 module.exports.restoreDisplayConfig = async (args) => {
   const devicePathNames = args.config
     .filter(({ targetModeBuffer }) => targetModeBuffer !== undefined)
@@ -318,6 +579,21 @@ function setupListenForDisplayChanges() {
   });
 }
 
+/**
+ * Registers a display change listener.
+ *
+ * This function will be called immediately upon registration, receiving the
+ * current display configuration. It will also be called every time the display
+ * configuration changes in Windows, e.g. when users attach or rearrange new
+ * displays, or alter the output resolution of already-attached displays.
+ *
+ * Note that the Node event loop will continue executing if any outstanding change
+ * listeners are registered, precluding graceful shutdown. Use {@link removeDisplayChangeListener}
+ * to remove outstanding display change listeners and clear the event loop.
+ *
+ * @param {function(ExtractedDisplayConfig): void} listener
+ * @returns {function(ExtractedDisplayConfig): void} the listener argument as passed
+ */
 module.exports.addDisplayChangeListener = (listener) => {
   if (displayChangeCallbacks.size === 0) {
     setupListenForDisplayChanges();
@@ -328,8 +604,18 @@ module.exports.addDisplayChangeListener = (listener) => {
   if (currentDisplayConfig !== undefined) {
     listener(null, currentDisplayConfig);
   }
+
+  return listener;
 };
 
+/**
+ * De-registers a display change listener.
+ *
+ * De-registering all display change listeners clears the event loop of pending
+ * work started by {@link addDisplayChangeListener} to allow for a graceful shutdown.
+ *
+ * @param {function(ExtractedDisplayConfig): void} listener previously passed to {@link addDisplayChangeListener}
+ */
 module.exports.removeDisplayChangeListener = (listener) => {
   displayChangeCallbacks.delete(listener);
   if (displayChangeCallbacks.size === 0) {
