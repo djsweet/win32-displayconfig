@@ -30,6 +30,6 @@
   "files": [
     "index.js",
     "binding.gyp",
-    "win32-monitors.cc"
+    "win32-displayconfig.cc"
   ]
 }
