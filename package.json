@@ -1,7 +1,7 @@
 {
-  "name": "win32-monitors",
+  "name": "win32-displayconfig",
   "version": "0.0.1",
-  "description": "Inspect and reconfigure monitors in Windows",
+  "description": "Inspect and reconfigure displays in Windows",
   "main": "index.js",
   "scripts": {
     "rebuild": "node-gyp rebuild",
