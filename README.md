@@ -10,6 +10,13 @@ Additional testing on other versions of Windows 10 and Windows 8.1 would be appr
 We are not planning on supporting Windows 7 or Windows 8, as they are generally unsupported
 by Microsoft. However, patches to support Windows 7 or Windows 8 are welcome.
 
+## Supported Node Versions
+
+This module requires N-API Version 4,
+[bounding the minimum supported Node versions](https://nodejs.org/api/n-api.html#n_api_n_api_version_matrix)
+to 8.16.0 (without any support for Node 9), Node 10.16.0, and Node 11.8.0. We are only actively testing
+on Node 10.21 and above. We'll note incompatibilities and accept patches for Node 8 if the need arises.
+
 ## Functionality
 
 - Querying display devices, at a low and higher
