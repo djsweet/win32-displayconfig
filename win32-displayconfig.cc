@@ -1,3 +1,7 @@
+/*
+ * win32-displayconfig.cc: part of the "win32-displayconfig" Node package.
+ * See the COPYRIGHT file at the top-level directory of this distribution.
+ */
 #define NAPI_VERSION 4
 #include <napi.h>
 #include <string.h>

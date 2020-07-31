@@ -1,3 +1,7 @@
+/*
+ * index.js: part of the "win32-displayconfig" Node package.
+ * See the COPYRIGHT file at the top-level directory of this distribution.
+ */
 "use strict";
 const addon = require("bindings")("./win32_displayconfig");
 

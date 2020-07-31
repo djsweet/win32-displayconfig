@@ -31,6 +31,8 @@
     "typescript": "^3.9.7"
   },
   "files": [
+    "CONTRIBUTORS",
+    "COPYRIGHT",
     "index.js",
     "index.d.ts",
     "binding.gyp",

@@ -1,3 +1,8 @@
+/*
+ * index.d.ts: part of the "win32-displayconfig" Node package.
+ * See the COPYRIGHT file at the top-level directory of this distribution.
+ */
+
 export class Win32Error extends Error {
   code: number;
 }

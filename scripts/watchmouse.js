@@ -1,3 +1,8 @@
+/*
+ * scripts/watchmouse.js: part of the "win32-displayconfig" Node package.
+ * See the COPYRIGHT file at the top-level directory of this distribution.
+ */
+"use strict";
 const robotjs = require("robotjs");
 const { VerticalRefreshRateContext } = require("../index");
 
