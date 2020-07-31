@@ -78,6 +78,7 @@ class Win32DisplayChangeContext {
     DWORD Start() {
         this->hThread = CreateThread(NULL, 0, RunDisplayChangeContextLoop, this, 0, &this->dwThreadId);
         if (this->hThread == NULL) {
+            this->tsfn.Release();
             return GetLastError();
         } else {
             return ERROR_SUCCESS;
@@ -93,6 +94,7 @@ class Win32DisplayChangeContext {
             PostThreadMessage(this->dwThreadId, WM_USER, 0, 0);
             WaitForSingleObject(this->hThread, INFINITE);
             CloseHandle(this->hThread);
+            this->tsfn.Release();
         }
     }
 
