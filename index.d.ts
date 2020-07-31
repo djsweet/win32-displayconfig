@@ -183,3 +183,11 @@ export function addDisplayChangeListener(
 export function removeDisplayChangeListener(
   listener: DisplayChangeListener
 ): void;
+
+export class VerticalRefreshRateContext {
+  findVerticalRefreshRateForDisplayPoint(
+    x: number,
+    y: number
+  ): Promise<number | undefined>;
+  close(): void;
+}

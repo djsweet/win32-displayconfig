@@ -622,3 +622,104 @@ module.exports.removeDisplayChangeListener = (listener) => {
     addon.win32_stopListeningForDisplayChanges();
   }
 };
+
+/**
+ * Establishes a context for determining the vertical refresh rate.
+ *
+ * Active instances of this class will establish perpetual work on the event loop,
+ * as the internals use {@link addDisplayChangeListener} to react to display changes.
+ *
+ * In order to clear the relevant work on the Node event loop, you must call
+ * {@link VerticalRefreshRateContext.close} when you are finished using this context.
+ */
+class VerticalRefreshRateContext {
+  constructor() {
+    let readyPromiseResolver;
+    let readyPromiseResolved = false;
+
+    this.readyPromise = new Promise((resolve) => {
+      readyPromiseResolver = () => {
+        if (readyPromiseResolved) return;
+        readyPromiseResolved = true;
+        resolve();
+      };
+    });
+    this.geometry = [];
+
+    const computeDisplayGeometryFromConfig = (err, conf) => {
+      if (err !== null) {
+        return;
+      }
+      const geom = [];
+
+      for (const { sourceMode, targetVideoSignalInfo, inUse } of conf) {
+        if (!inUse) {
+          continue;
+        }
+
+        const { width, height, position } = sourceMode;
+        const { vSyncFreq } = targetVideoSignalInfo;
+        // 30Hz is a safe guess for broken vSyncFreq outputs, I think...
+        const vRefreshRate =
+          vSyncFreq.Numerator === 0 || vSyncFreq.Denominator === 0
+            ? 30
+            : vSyncFreq.Numerator / vSyncFreq.Denominator;
+        const top = position.y;
+        const bottom = position.y + height;
+        const left = position.x;
+        const right = position.x + width;
+
+        geom.push({ top, bottom, left, right, vRefreshRate });
+      }
+
+      this.geometry = geom;
+      readyPromiseResolver();
+    };
+
+    this.changeListener = module.exports.addDisplayChangeListener(
+      computeDisplayGeometryFromConfig
+    );
+  }
+
+  /**
+   * Computes the vertical refresh rate of the displays at a given display point.
+   *
+   * If any displays overlap at the given display point, the return result will
+   * be the minimum of the vertical refresh rates of each physical device displaying
+   * at that effective point.
+   *
+   * This method is asynchronous due to the implementation of addDisplayChangeListener;
+   * it waits for a valid display configuration to be captured before returning the
+   * best possible refresh rate.
+   *
+   * @param {number} x The vertical offset of the display point
+   * @param {number} y The horizontal offset of the display point
+   *
+   * @returns {number | undefined} The vertical refresh rate at the given display point,
+   *   or undefined if the given display point is out of bounds of the available display space.
+   */
+  async findVerticalRefreshRateForDisplayPoint(x, y) {
+    await this.readyPromise;
+
+    let ret;
+    for (const { top, bottom, left, right, vRefreshRate } of this.geometry) {
+      if (left <= x && x < right && top <= y && y < bottom) {
+        ret = ret === undefined ? vRefreshRate : Math.min(ret, vRefreshRate);
+      }
+    }
+
+    return ret;
+  }
+
+  /**
+   * Disconnects this instance from display change events.
+   *
+   * Disconnecting the instance from display change events will clear relevant
+   * work items off of the event loop as per {@link removeDisplayChangeListener}.
+   */
+  close() {
+    module.exports.removeDisplayChangeListener(this.changeListener);
+  }
+}
+
+module.exports.VerticalRefreshRateContext = VerticalRefreshRateContext;
